@@ -6,6 +6,8 @@
     <title>Finance Assistant</title>
     <!-- Include Chart.js for visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Include Chart.js Datalabels Plugin for percentage labels -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <!-- Include Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
@@ -851,30 +853,41 @@
         // Update charts with analysis data
         function updateCharts(analysis) {
             clearCharts();
-            if (!analysis || !analysis.exposure) {
+            if (!analysis || !analysis.regional_sector_exposure) {
+                return;
+            }
+
+            // Skip rendering if there's only one category (not insightful)
+            const categories = Object.keys(analysis.regional_sector_exposure);
+            if (categories.length <= 1) {
+                console.log("Skipping chart generation: only one category present.");
                 return;
             }
 
             const chartsContainer = document.getElementById("charts-container");
 
-            // Exposure Pie Chart
+            // Regional-Sector Exposure Pie Chart
             const exposureCanvas = document.createElement("canvas");
             exposureCanvas.id = "exposure-chart";
             chartsContainer.appendChild(exposureCanvas);
 
             const exposureData = {
-                labels: Object.keys(analysis.exposure),
+                labels: Object.keys(analysis.regional_sector_exposure),
                 datasets: [{
                     label: "Portfolio Exposure (%)",
-                    data: Object.values(analysis.exposure),
+                    data: Object.values(analysis.regional_sector_exposure),
                     backgroundColor: [
-                        "#3498db",
-                        "#e74c3c",
-                        "#2ecc71",
-                        "#f1c40f",
-                        "#9b59b6",
-                        "#1abc9c"
-                    ]
+                        "#3498db", // Blue
+                        "#e74c3c", // Red
+                        "#2ecc71", // Green
+                        "#f1c40f", // Yellow
+                        "#9b59b6", // Purple
+                        "#1abc9c", // Teal
+                        "#34495e", // Dark Blue
+                        "#e67e22"  // Orange
+                    ],
+                    borderWidth: 1,
+                    borderColor: "#fff"
                 }]
             };
 
@@ -889,10 +902,21 @@
                         },
                         title: {
                             display: true,
-                            text: "Portfolio Exposure by Asset Class"
+                            text: "Portfolio Exposure by Region and Sector"
+                        },
+                        datalabels: {
+                            formatter: (value, context) => {
+                                return value.toFixed(1) + '%';
+                            },
+                            color: "#fff",
+                            font: {
+                                weight: "bold"
+                            },
+                            textAlign: "center"
                         }
                     }
-                }
+                },
+                plugins: [ChartDataLabels] // Enable datalabels plugin
             });
         }
 
