@@ -34,6 +34,8 @@ import os
 import requests
 import zipfile
 import os
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Function to download and extract GloVe embeddings
 def download_glove_embeddings():
