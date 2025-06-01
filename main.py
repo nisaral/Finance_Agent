@@ -31,7 +31,45 @@ from pydub import AudioSegment
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
+import requests
+import zipfile
+import os
 
+# Function to download and extract GloVe embeddings
+def download_glove_embeddings():
+    glove_url = "http://nlp.stanford.edu/data/glove.6B.zip"
+    glove_zip_path = "glove.6B.zip"
+    glove_file_path = "glove.6B.300d.txt"
+
+    # Check if the file already exists
+    if os.path.exists(glove_file_path):
+        logger.info("GloVe embeddings file already exists, skipping download.")
+        return
+
+    logger.info("Downloading GloVe embeddings...")
+    try:
+        # Download the zip file
+        response = requests.get(glove_url, stream=True)
+        response.raise_for_status()
+        with open(glove_zip_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+
+        # Extract the specific file we need
+        logger.info("Extracting GloVe embeddings...")
+        with zipfile.ZipFile(glove_zip_path, "r") as zip_ref:
+            zip_ref.extract(glove_file_path)
+
+        # Clean up the zip file
+        os.remove(glove_zip_path)
+        logger.info("GloVe embeddings downloaded and extracted successfully.")
+    except Exception as e:
+        logger.error(f"Failed to download GloVe embeddings: {e}")
+        raise ValueError("Could not download GloVe embeddings. Please ensure internet access and try again.")
+
+# Call the download function before loading embeddings
+download_glove_embeddings()
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
