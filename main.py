@@ -28,6 +28,9 @@ import librosa
 import tempfile
 import soundfile as sf
 from pydub import AudioSegment
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -1265,3 +1268,9 @@ async def run(
                 "Access-Control-Allow-Headers": "*"
             }
         )
+app.mount("/static", StaticFiles(directory="."), name="static")
+
+# Serve index.html at the root URL
+@app.get("/")
+async def serve_index():
+    return FileResponse("index.html")
