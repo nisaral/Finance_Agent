@@ -26,7 +26,8 @@ from collections import defaultdict
 import google.generativeai as genai
 import librosa
 import tempfile
-import soundfile as sf  # Add soundfile for better audio handling
+import soundfile as sf
+from pydub import AudioSegment
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -179,11 +180,13 @@ class State(BaseModel):
     retrieved: list = []
     analysis_result: dict = {}
     narrative: str = ""
+    narrative_for_audio: str = ""
     audio_output: str = ""
     audio_transcript: str = ""
     tone_analysis: dict = {}
     error: str = ""
     confidence: float = 0.5
+    charts: list = []  # New field to store chart configurations
 
 # Enums for market regions and sectors
 class MarketRegion(str, Enum):
@@ -215,14 +218,19 @@ async def analyze_tone(audio_bytes: bytes) -> Dict[str, str]:
             temp_audio.write(audio_bytes)
             temp_audio_path = temp_audio.name
 
+        # Convert WAV to a standard format using pydub
+        audio_segment = AudioSegment.from_file(temp_audio_path)
+        converted_path = temp_audio_path.replace(".wav", "_converted.wav")
+        audio_segment.export(converted_path, format="wav", parameters=["-ac", "1", "-ar", "16000"])  # Mono, 16kHz
+
         # Load audio with soundfile to validate
-        y, sr = sf.read(temp_audio_path)
+        y, sr = sf.read(converted_path)
         if len(y) < sr:  # Less than 1 second of audio
             logger.warning("Audio duration too short for tone analysis")
-            return {"pitch": "unknown", "energy": "unknown", "tempo": "unknown"}
+            return {"pitch": "medium", "energy": "high", "tempo": "fast"}  # Fallback tone
 
         # Load audio with librosa
-        y, sr = librosa.load(temp_audio_path, sr=None)
+        y, sr = librosa.load(converted_path, sr=None)
         
         # Analyze pitch, energy, and tempo
         pitch = np.mean(librosa.pitch_tuning(y))
@@ -230,7 +238,7 @@ async def analyze_tone(audio_bytes: bytes) -> Dict[str, str]:
         tempo = librosa.beat.tempo(y=y, sr=sr)[0] if len(y) > sr else 0.0  # Avoid tempo estimation on very short audio
         
         tone = {}
-        tone['pitch'] = 'high' if pitch > 0.1 else 'low'
+        tone['pitch'] = 'high' if pitch > 0.1 else 'low' if pitch < -0.1 else 'medium'
         tone['energy'] = 'high' if energy > 0.05 else 'low'
         tone['tempo'] = 'fast' if tempo > 120 else 'slow'
         
@@ -239,12 +247,14 @@ async def analyze_tone(audio_bytes: bytes) -> Dict[str, str]:
     
     except Exception as e:
         logger.error(f"Tone analysis error: {str(e)}")
-        return {"pitch": "unknown", "energy": "unknown", "tempo": "unknown"}
+        return {"pitch": "medium", "energy": "high", "tempo": "fast"}  # Fallback tone
     
     finally:
-        # Clean up temporary file
+        # Clean up temporary files
         if temp_audio_path and os.path.exists(temp_audio_path):
             os.remove(temp_audio_path)
+        if 'converted_path' in locals() and os.path.exists(converted_path):
+            os.remove(converted_path)
 
 # API Agent: Fetch market data using yfinance
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
@@ -673,89 +683,191 @@ def summarize_news_sentiment(news: List[Dict]) -> str:
     neg = sentiments.count("negative")
     return f"Positive: {pos}, Negative: {neg}, Neutral: {len(sentiments) - pos - neg}"
 
-# Language Agent: Generate narrative using Gemini 1.5 Flash
+# Helper to determine query focus
+def determine_query_focus(query: str) -> str:
+    query_lower = query.lower()
+    if "visualize" in query_lower:
+        return "visualization"
+    elif "investment opportunit" in query_lower:
+        return "investment_opportunities"
+    elif "risk" in query_lower or "exposure" in query_lower:
+        return "risk_assessment"
+    elif "update" in query_lower or "overview" in query_lower:
+        return "portfolio_update"
+    else:
+        return "portfolio_update"  # Default to a general update
+
+# Function to add stars to section headers for audio narration
+def add_audio_section_markers(narrative: str) -> str:
+    section_pattern = r"^(.*?):$"
+    lines = narrative.split("\n")
+    modified_lines = []
+    for line in lines:
+        if re.match(section_pattern, line.strip()):
+            section_name = line.strip().rstrip(":")
+            modified_line = f"* * {section_name} * *:"
+            modified_lines.append(modified_line)
+        else:
+            modified_lines.append(line)
+    return "\n".join(modified_lines)
+
+# Helper to determine tone-based introduction
+def get_tone_introduction(tone_analysis: Dict[str, str]) -> str:
+    energy = tone_analysis.get("energy", "unknown")
+    tempo = tone_analysis.get("tempo", "unknown")
+    if energy == "low" or tempo == "slow":
+        return "Noting your calm tone, I’ll provide a steady and detailed overview."
+    elif energy == "high" or tempo == "fast":
+        return "I sense an energetic tone, so I’ll deliver a brisk and upbeat summary!"
+    else:
+        return "I’ll provide a balanced overview tailored to your needs."
+
+# Language Agent: Generate narrative and charts (if applicable)
 async def language_node(state: State) -> State:
     state.narrative = ""
+    state.narrative_for_audio = ""
+    state.charts = []  # Reset charts
     if not state.query:
         state.error += "No query provided for narrative generation\n"
         return state
 
     if state.retrieved and state.confidence < 0.3:
         state.narrative = "Could you clarify your query? The retrieved information is insufficient."
+        state.narrative_for_audio = add_audio_section_markers(state.narrative)
         return state
 
     if not state.retrieved and not state.news:
         state.narrative = await fetch_gemini_narrative(state.query, state.portfolio, state.tone_analysis)
+        state.narrative_for_audio = add_audio_section_markers(state.narrative)
         return state
 
+    # Determine the focus of the query
+    query_focus = determine_query_focus(state.query)
+
+    # Generate a chart if the query focus is visualization
+    if query_focus == "visualization":
+        sector_breakdown_dict = state.analysis_result.get("exposure", {})
+        if sector_breakdown_dict:
+            labels = list(sector_breakdown_dict.keys())
+            data = list(sector_breakdown_dict.values())
+            chart_config = {
+                "type": "pie",
+                "data": {
+                    "labels": labels,
+                    "datasets": [{
+                        "label": "Sector Exposure",
+                        "data": data,
+                        "backgroundColor": [
+                            "#FF6F61",  # Coral
+                            "#6B5B95",  # Purple
+                            "#88B04B",  # Green
+                            "#F7CAC9",  # Light Pink
+                            "#92A8D1",  # Light Blue
+                            "#955251",  # Dark Coral
+                            "#B565A7"   # Magenta
+                        ],
+                        "borderColor": "#FFFFFF",
+                        "borderWidth": 1
+                    }]
+                },
+                "options": {
+                    "responsive": True,
+                    "plugins": {
+                        "legend": {
+                            "position": "top",
+                            "labels": {
+                                "color": "#333333"
+                            }
+                        },
+                        "title": {
+                            "display": True,
+                            "text": "Sector Exposure Breakdown",
+                            "color": "#333333"
+                        }
+                    }
+                }
+            }
+            state.charts.append(chart_config)
+
     tone_summary = f"User's voice tone: Pitch is {state.tone_analysis.get('pitch', 'unknown')}, energy is {state.tone_analysis.get('energy', 'unknown')}, tempo is {state.tone_analysis.get('tempo', 'unknown')}."
+    tone_intro = get_tone_introduction(state.tone_analysis)
+
+    # Base prompt structure with dynamic sections based on query focus
     prompt = ChatPromptTemplate.from_template(
         """
-You are a senior portfolio analyst providing a market brief to institutional investors. 
-Analyze the provided data and deliver a professional, actionable commentary.
+Good day, sir/madam, as your financial assistant, I’m here with your market brief for {current_date}. {tone_intro}
+
 {tone_summary}
 Adjust your tone to be more empathetic if the user's tone sounds low-energy or slow, and more upbeat if high-energy or fast.
 
-*PORTFOLIO CONTEXT:*
-- Total Portfolio Value: ${total_value:,.2f}
-- Focus Region: {focus_region}
-- Focus Sector: {focus_sector}
-
-*HOLDINGS & ALLOCATION:*
+Portfolio Summary:
+- Total Value: ${total_value:,.2f}
 - Key Holdings: {key_holdings}
-- Sector Breakdown: {sector_breakdown}
-- Regional Breakdown: {regional_breakdown}
+- Sector Allocation: {sector_breakdown}
+- Regional Allocation: {regional_breakdown}
 
-*MARKET PERFORMANCE:*
-- Asset Exposure: {exposure_summary}
-
-*EARNINGS & CORPORATE DEVELOPMENTS:*
-- Earnings Surprises: {earnings_analysis}
-
-*GLOBAL MARKET SNAPSHOT:*
-- Major Indices: {market_indices}
-
-*CURRENCY & COMMODITIES:*
-- FX/Commodities: {fx_commodities}
-
-*NEWS & DEVELOPMENTS:*
+Market Insights:
 - Sentiment: {news_sentiment}
 - Recent News: {news_summary}
+- Earnings: {earnings_analysis}
+- Indices: {market_indices}
+- FX/Commodities: {fx_commodities}
 
-*ANALYSIS:*
-1. *POSITION OVERVIEW* (2-3 sentences)
-   - Current portfolio value and allocation
-   - Overall risk profile
+Analysis for Your Query: "{query}"
 
-2. *PERFORMANCE DRIVERS* (3-4 sentences)
-   - Key sector/regional trends
-   - Earnings impacts
-   - Market themes
+""" + (
+        # Visualization Focus
+        """
+Portfolio Snapshot for Visualization:
+- Total Value: ${total_value:,.2f}, with {key_holdings} as your main holdings.
+- Sector Breakdown: {sector_breakdown}.
+- Regional Exposure: {regional_breakdown}.
+- Key Insight: Your portfolio is {risk_level} risk, primarily in {focus_sector}. A chart of sector allocations has been generated for you to visualize concentration risks.
+"""
+        if query_focus == "visualization" else
+        # Risk Assessment
+        """
+Risk Assessment:
+- Risk Level: {risk_level}, with a total value of ${total_value:,.2f}.
+- Exposure: {exposure_summary}, concentrated in {focus_sector}, {focus_region}.
+- Vulnerabilities: {risk_vulnerabilities}.
+- Sector Risks: {focus_sector} may face {sector_risks}.
+- Regional Risks: {focus_region} could see {regional_risks}.
+- Mitigation: {risk_mitigation}. Diversify by {diversification_suggestion} (e.g., VPU for Utilities).
+"""
+        if query_focus == "risk_assessment" else
+        # Investment Opportunities
+        """
+Investment Opportunities:
+- Current Exposure: {exposure_summary}, focused in {focus_sector}, {focus_region}.
+- Opportunities: {suggested_sector} (e.g., {suggested_symbols}) looks promising due to {news_summary_insight}.
+- Alternative Regions: Consider {alternative_region} for growth.
+- Recommendation: Allocate to {investment_suggestion}. Monitor {events_to_monitor}. Confidence: {confidence:.1%}.
+"""
+        if query_focus == "investment_opportunities" else
+        # Portfolio Update (Default)
+        """
+Portfolio Overview:
+- Value: ${total_value:,.2f}, with holdings in {key_holdings}.
+- Performance Drivers: {focus_sector} trends are key. {news_summary_insight} Earnings: {earnings_analysis_insight}.
+- Market Context: {market_indices_insight}. {fx_commodities_insight}.
+- Risk Profile: {risk_level}, with risks from {risk_vulnerabilities}.
+- Outlook: {market_outlook} outlook. Recommendation: {recommendation}. Monitor {events_to_monitor}.
+"""
+    ) + """
 
-3. *GLOBAL CONTEXT* (2-3 sentences)
-   - Broader market environment
-   - Currency/commodity impacts
-   - Macro factors
+GUIDELINES:
+- Professional tone, adjusted based on user's voice tone.
+- Quantitative with figures.
+- Actionable insights with specific recommendations (e.g., suggest stocks/ETFs like VPU, JNJ).
+- Risk-aware.
+- 150-200 words.
+- Confidence levels for assessments.
+- Use plain section headers (e.g., "Portfolio Overview:") for written output.
+- Avoid using special characters like $ or % in the narrative text for clean audio output.
+- If market data is unavailable, use general sector trends or historical insights as a fallback.
 
-4. *RISK FACTORS* (2-3 sentences)
-   - Risk level (Low/Moderate/High)
-   - Key vulnerabilities
-   - Concentration concerns
-
-5. *TACTICAL OUTLOOK* (2-3 sentences)
-   - Positioning recommendations
-   - Events to monitor
-   - Rebalancing considerations
-
-*GUIDELINES:*
-- Professional tone, adjusted based on user's voice tone
-- Quantitative with figures
-- Actionable insights
-- Risk-aware
-- 150-200 words
-- Confidence levels for assessments
-
-*SESSION CONTEXT:*
+SESSION CONTEXT:
 - Date: {current_date}
 - Trading Environment: {trading_session}
 """
@@ -764,7 +876,7 @@ Adjust your tone to be more empathetic if the user's tone sounds low-energy or s
     try:
         current_date = datetime.utcnow().strftime("%B %d, %Y")
         focus_region = MarketRegion.ASIA_PACIFIC if "asia" in state.query.lower() else MarketRegion.GLOBAL
-        focus_sector = MarketSector.TECHNOLOGY if "tech" in state.query.lower() else None
+        focus_sector = MarketSector.TECHNOLOGY if "tech" in state.query.lower() else MarketSector.FINANCIALS
 
         total_value = state.analysis_result.get("total_value", 0.0)
         surprises = state.analysis_result.get("earnings_surprises", {})
@@ -776,15 +888,37 @@ Adjust your tone to be more empathetic if the user's tone sounds low-energy or s
         currency_moves = {k: v["price"] for k, v in state.market_data.get("currencies", {}).items()}
         commodity_prices = {k: v["price"] for k, v in state.market_data.get("commodities", {}).items()}
 
-        exposure_summary = "; ".join([f"{asset}: {weight:.1f}%" for asset, weight in sector_breakdown_dict.items()]) if sector_breakdown_dict else "N/A"
-        earnings_analysis = "; ".join([f"{company}: {surprise:+.1f}%" for company, surprise in surprises.items()]) if surprises else "No major earnings surprises"
-        market_indices = ", ".join([f"{index}: {price:.2f}" for index, price in major_indices.items()]) if major_indices else "N/A"
-        fx_commodities = "; ".join([f"{k}: {v:.2f}" for k, v in list(currency_moves.items()) + list(commodity_prices.items())]) if (currency_moves or commodity_prices) else "N/A"
+        # Determine risk level based on concentration
+        max_exposure = max(sector_breakdown_dict.values()) if sector_breakdown_dict else 0.0
+        risk_level = "High" if max_exposure > 70 else "Moderate" if max_exposure > 40 else "Low"
+
+        exposure_summary = "; ".join([f"{asset}: {weight:.1f} percent" for asset, weight in sector_breakdown_dict.items()]) if sector_breakdown_dict else "N/A"
+        earnings_analysis = "; ".join([f"{company}: {surprise:+.1f} percent" for company, surprise in surprises.items()]) if surprises else "No major earnings surprises"
+        market_indices = ", ".join([f"{index}: {price:.2f}" for index, price in major_indices.items()]) if major_indices else "Technology sector historically stable"
+        fx_commodities = "; ".join([f"{k}: {v:.2f}" for k, v in list(currency_moves.items()) + list(commodity_prices.items())]) if (currency_moves or commodity_prices) else "No significant movements"
         news_summary = " | ".join(documents[:3]) if documents else "No recent news"
         news_sentiment = summarize_news_sentiment(state.news)
         key_holdings_str = ", ".join(key_holdings[:3]) if key_holdings else "N/A"
-        sector_breakdown = "; ".join([f"{sector}: {weight:.1f}%" for sector, weight in sector_breakdown_dict.items()]) if sector_breakdown_dict else "N/A"
-        regional_breakdown = "; ".join([f"{rs}: {weight:.1f}%" for rs, weight in regional_sector_exposure.items()]) if regional_sector_exposure else "N/A"
+        sector_breakdown = "; ".join([f"{sector}: {weight:.1f} percent" for sector, weight in sector_breakdown_dict.items()]) if sector_breakdown_dict else "N/A"
+        regional_breakdown = "; ".join([f"{rs}: {weight:.1f} percent" for rs, weight in regional_sector_exposure.items()]) if regional_sector_exposure else "N/A"
+
+        # Additional fields for dynamic sections
+        news_summary_insight = f"Recent news shows {news_sentiment.lower()}, indicating {'positive momentum' if 'Positive' in news_sentiment else 'potential challenges'}." if news_summary != "No recent news" else "No recent news impacts noted."
+        earnings_analysis_insight = f"Earnings show {earnings_analysis.lower()}." if earnings_analysis != "No major earnings surprises" else "No significant earnings impacts."
+        market_indices_insight = f"Major indices: {market_indices}" if market_indices != "Technology sector historically stable" else "Technology sector has been stable historically"
+        fx_commodities_insight = f"FX/Commodities: {fx_commodities}" if fx_commodities != "No significant movements" else "No notable currency or commodity movements"
+        market_outlook = "favorable" if "Positive" in news_sentiment else "cautious"
+        risk_vulnerabilities = f"sector-specific downturns in {focus_sector.value.replace('_', ' ').title()}"
+        recommendation = "diversify into Utilities (e.g., VPU)" if risk_level == "High" else "maintain allocations, monitor closely"
+        events_to_monitor = f"{focus_sector.value.replace('_', ' ').title()} developments and global macro trends"
+        sector_risks = "market volatility and regulatory changes"
+        regional_risks = "geopolitical tensions or economic slowdown"
+        risk_mitigation = "reduce concentration by diversifying into other sectors"
+        diversification_suggestion = f"adding exposure to {MarketSector.UTILITIES.value.replace('_', ' ').title()}"
+        suggested_sector = MarketSector.HEALTHCARE.value.replace('_', ' ').title()
+        suggested_symbols = "JNJ, PFE"
+        alternative_region = MarketRegion.EMERGING_MARKETS.value.replace('_', ' ').title()
+        investment_suggestion = f"{suggested_sector} stocks like {suggested_symbols}"
 
         hour = datetime.utcnow().hour
         if 6 <= hour < 12:
@@ -798,30 +932,53 @@ Adjust your tone to be more empathetic if the user's tone sounds low-energy or s
 
         formatted_prompt = prompt.format(
             tone_summary=tone_summary,
+            tone_intro=tone_intro,
+            current_date=current_date,
+            query=state.query,
             total_value=total_value,
-            focus_region=focus_region.replace('_', ' ').title(),
-            focus_sector=focus_sector.replace('_', ' ').title() if focus_sector else "Broad Market",
+            key_holdings=key_holdings_str,
+            sector_breakdown=sector_breakdown,
+            regional_breakdown=regional_breakdown,
             exposure_summary=exposure_summary,
             earnings_analysis=earnings_analysis,
             market_indices=market_indices,
             fx_commodities=fx_commodities,
             news_summary=news_summary,
             news_sentiment=news_sentiment,
-            current_date=current_date,
-            key_holdings=key_holdings_str,
-            sector_breakdown=sector_breakdown,
-            regional_breakdown=regional_breakdown,
+            focus_region=focus_region.value.replace('_', ' ').title(),
+            focus_sector=focus_sector.value.replace('_', ' ').title(),
+            risk_level=risk_level,
+            news_summary_insight=news_summary_insight,
+            earnings_analysis_insight=earnings_analysis_insight,
+            market_indices_insight=market_indices_insight,
+            fx_commodities_insight=fx_commodities_insight,
+            market_outlook=market_outlook,
+            risk_vulnerabilities=risk_vulnerabilities,
+            recommendation=recommendation,
+            events_to_monitor=events_to_monitor,
+            sector_risks=sector_risks,
+            regional_risks=regional_risks,
+            risk_mitigation=risk_mitigation,
+            diversification_suggestion=diversification_suggestion,
+            suggested_sector=suggested_sector,
+            suggested_symbols=suggested_symbols,
+            alternative_region=alternative_region,
+            investment_suggestion=investment_suggestion,
+            confidence=state.confidence,
             trading_session=trading_session
         )
 
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(formatted_prompt)
         state.narrative = response.text.strip()
+        state.narrative_for_audio = add_audio_section_markers(state.narrative)
 
     except Exception as e:
         state.error += f"Language service error: {str(e)}\n"
         logger.error(f"Language error: {str(e)}")
-        state.narrative = await fetch_gemini_narrative(state.query, state.portfolio, state.tone_analysis)
+        fallback_narrative = await fetch_gemini_narrative(state.query, state.portfolio, state.tone_analysis)
+        state.narrative = fallback_narrative
+        state.narrative_for_audio = add_audio_section_markers(fallback_narrative)
     return state
 
 # Voice Agent: Process audio input (STT) and Tone Analysis
@@ -835,73 +992,86 @@ async def process_audio_input(state: State) -> State:
         audio_size = len(state.audio)
         logger.info(f"Audio input size: {audio_size} bytes")
 
-        # Save audio to a temporary file to validate duration
+        # Save audio to a temporary file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
             temp_audio.write(state.audio)
             temp_audio_path = temp_audio.name
 
+        # Convert WAV to a standard format using pydub
+        audio_segment = AudioSegment.from_file(temp_audio_path)
+        converted_path = temp_audio_path.replace(".wav", "_converted.wav")
+        audio_segment.export(converted_path, format="wav", parameters=["-ac", "1", "-ar", "16000"])  # Mono, 16kHz
+
         try:
             # Check audio duration using soundfile
-            with sf.SoundFile(temp_audio_path) as f:
+            with sf.SoundFile(converted_path) as f:
                 duration = len(f) / f.samplerate
                 logger.info(f"Audio duration: {duration:.2f} seconds")
                 if duration < 1.0:  # Minimum 1 second of audio
                     logger.warning("Audio duration too short for processing")
                     state.query = "Audio too short to transcribe."
-                    state.tone_analysis = {"pitch": "unknown", "energy": "unknown", "tempo": "unknown"}
+                    state.tone_analysis = {"pitch": "medium", "energy": "high", "tempo": "fast"}  # Fallback tone
                     return state
+
+            # Read the converted audio file for Deepgram
+            with open(converted_path, "rb") as f:
+                audio_data = f.read()
+
+            # Perform tone analysis
+            state.tone_analysis = await analyze_tone(audio_data)
+
+            # Perform STT with Deepgram
+            buffer_data = {"buffer": audio_data}
+            options = PrerecordedOptions(
+                model="nova-2",
+                language="en",
+                smart_format=True,
+                detect_language=True,
+                punctuate=True,
+                utterances=True
+            )
+
+            response = deepgram.listen.prerecorded.v("1").transcribe_file(
+                buffer_data,
+                options
+            )
+
+            # Access the response attributes directly
+            if hasattr(response, "results") and hasattr(response.results, "channels"):
+                transcript = response.results.channels[0].alternatives[0].transcript.strip()
+                state.query = transcript if transcript else "No speech detected in audio."
+                logger.info(f"Transcribed audio to query with Deepgram: '{state.query}'")
+            else:
+                raise Exception("Deepgram response missing expected fields")
+
         finally:
+            # Clean up temporary files
             os.remove(temp_audio_path)
-
-        # Perform tone analysis (optional)
-        state.tone_analysis = await analyze_tone(state.audio)
-
-        # Perform STT with Deepgram
-        buffer_data = {"buffer": state.audio}
-        options = PrerecordedOptions(
-            model="nova-2",
-            language="en",
-            smart_format=True,
-            detect_language=True,
-            punctuate=True,
-            utterances=True
-        )
-
-        response = deepgram.listen.prerecorded.v("1").transcribe_file(
-            buffer_data,
-            options
-        )
-
-        # Access the response attributes directly
-        if hasattr(response, "results") and hasattr(response.results, "channels"):
-            transcript = response.results.channels[0].alternatives[0].transcript.strip()
-            state.query = transcript if transcript else "No speech detected in audio."
-            logger.info(f"Transcribed audio to query with Deepgram: '{state.query}'")
-        else:
-            raise Exception("Deepgram response missing expected fields")
+            os.remove(converted_path)
 
     except Exception as e:
         state.error += f"Audio processing error: {str(e)}\n"
         logger.error(f"Audio processing error: {str(e)}")
         state.query = "Unable to transcribe audio input."
-        state.tone_analysis = {"pitch": "unknown", "energy": "unknown", "tempo": "unknown"}
+        state.tone_analysis = {"pitch": "medium", "energy": "high", "tempo": "fast"}  # Fallback tone
     return state
 
 # Voice Agent: Generate audio (TTS)
 async def generate_audio(state: State) -> State:
     state.audio_output = ""
-    state.audio_transcript = state.narrative  # Transcript is the narrative text
-    if not state.narrative:
+    state.audio_transcript = state.narrative  # Use the clean narrative for the transcript
+    if not state.narrative_for_audio:
         state.error += "No narrative available for audio generation\n"
         return state
     try:
+        narrative = state.narrative_for_audio[:2000]
         options = SpeakOptions(
             model="aura-asteria-en",
             encoding="mp3",
         )
 
         response = deepgram.speak.rest.v("1").stream(
-            {"text": state.narrative},
+            {"text": narrative},
             options
         )
 
@@ -931,7 +1101,7 @@ async def run_pipeline(query: Optional[str], portfolio: str, user_id: str, audio
 
     # Validate query, but proceed with a default if empty
     if not state.query:
-        state.query = "Provide an overview of my portfolio."
+        state.query = "Provide an update on my portfolio."
         logger.warning(f"No query provided after audio processing, using default query: '{state.query}'")
 
     # Step 2: Fetch market data
@@ -945,7 +1115,8 @@ async def run_pipeline(query: Optional[str], portfolio: str, user_id: str, audio
             "tone_analysis": state.tone_analysis,
             "analysis": {},
             "query": state.query,
-            "news": []
+            "news": [],
+            "charts": []
         }
 
     # Step 3: Fetch news
@@ -957,21 +1128,22 @@ async def run_pipeline(query: Optional[str], portfolio: str, user_id: str, audio
     # Step 5: Analyze portfolio
     state = await analysis_node(state)
 
-    # Step 6: Generate narrative
+    # Step 6: Generate narrative and charts
     state = await language_node(state)
 
     # Step 7: Generate audio
     state = await generate_audio(state)
 
     return {
-        "narrative": state.narrative,
+        "narrative": state.narrative,  # Clean narrative without ** markers
         "audio_file": state.audio_output,
         "audio_transcript": state.audio_transcript,
         "tone_analysis": state.tone_analysis,
         "analysis": state.analysis_result,
         "query": state.query,
         "error": state.error,
-        "news": state.news
+        "news": state.news,
+        "charts": state.charts  # Include any generated charts
     }
 
 # API Agent endpoint (Live tracking)
@@ -1080,10 +1252,11 @@ async def run(
                 "narrative": "An error occurred while processing your request.",
                 "audio_file": "",
                 "audio_transcript": "",
-                "tone_analysis": {"pitch": "unknown", "energy": "unknown", "tempo": "unknown"},
+                "tone_analysis": {"pitch": "medium", "energy": "medium", "tempo": "low"},
                 "analysis": {},
                 "query": query or "",
-                "news": []
+                "news": [],
+                "charts": []
             },
             headers={
                 "Access-Control-Allow-Origin": "http://127.0.0.1:5500",
