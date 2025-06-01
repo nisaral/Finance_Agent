@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance Assistant</title>
+    <!-- Include Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Include Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background-color: #f4f4f9;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+
+        h2, h3 {
+            color: #34495e;
+            margin-bottom: 10px;
+        }
+
+        .portfolio-section, .query-section, .live-section, .response-section {
+            margin-bottom: 30px;
+        }
+
+        .portfolio-section textarea {
+            width: 100%;
+            height: 80px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+            margin-bottom: 10px;
+        }
+
+        .query-section {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .query-section input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-width: 300px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        #record-btn i {
+            font-size: 16px;
+        }
+
+        #record-btn.speaking i {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        #record-status {
+            margin-left: 10px;
+            color: #7f8c8d;
+        }
+
+        .live-section table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        .live-section th, .live-section td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .live-section th {
+            background-color: #ecf0f1;
+            color: #2c3e50;
+        }
+
+        .live-section td {
+            background-color: #fff;
+        }
+
+        .output-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .audio-output, .tone-analysis {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .response-text {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            min-height: 100px;
+        }
+
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .audio-animation {
+            display: inline-block;
+            width: 30px;
+            height: 10px;
+            margin-left: 10px;
+        }
+
+        .audio-animation::before {
+            content: '';
+            display: inline-block;
+            width: 5px;
+            height: 10px;
+            background-color: #3498db;
+            margin-right: 2px;
+            animation: wave 1s infinite;
+        }
+
+        .audio-animation::after {
+            content: '';
+            display: inline-block;
+            width: 5px;
+            height: 10px;
+            background-color: #3498db;
+            margin-right: 2px;
+            animation: wave 1s infinite 0.2s;
+        }
+
+        @keyframes wave {
+            0%, 100% { height: 10px; }
+            50% { height: 20px; }
+        }
+
+        .audio-animation.hidden {
+            display: none;
+        }
+
+        .voice-history {
+            margin-top: 20px;
+        }
+
+        .voice-history ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .voice-history li {
+            background-color: #f9f9f9;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 5px;
+        }
+
+        .charts-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .charts-container canvas {
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+
+        /* News Section Styles */
+        .news-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .news-sentiment {
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 12px;
+            display: inline-block;
+        }
+        .sentiment-positive {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .sentiment-negative {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .sentiment-neutral {
+            background-color: #e2e3e5;
+            color: #383d41;
+        }
+        .news-timestamp {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+
+        /* Narrative Section Styles */
+        #narrative-container {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        #narrative-text {
+            line-height: 1.8;
+            font-size: 16px;
+            color: #2c3e50;
+        }
+        #narrative-text .query {
+            font-weight: bold;
+            color: #34495e;
+            margin-bottom: 10px;
+            font-size: 18px;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        #narrative-text .section {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #ffffff;
+            border-left: 4px solid #3498db;
+            border-radius: 4px;
+        }
+        #narrative-text .section-title {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        #narrative-text .metric {
+            font-weight: bold;
+            color: #e74c3c;
+        }
+
+        /* Audio Transcript Section Styles */
+        #audio-container {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        #audio-transcript {
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        /* Tone Analysis Styles */
+        .tone-analysis p {
+            background-color: #f9f9f9;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        @media (max-width: 600px) {
+            .query-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .query-section input[type="text"] {
+                min-width: 100%;
+            }
+
+            button {
+                width: 100%;
+                margin-bottom: 10px;
+            }
+
+            .output-container {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Global Market Assistant</h1>
+        <div class="portfolio-section">
+            <h2>Enter Your Portfolio</h2>
+            <textarea id="portfolio-input" placeholder="e.g., AAPL:100, MSFT:50" aria-label="Enter your portfolio in the format SYMBOL:QUANTITY"></textarea>
+            <button onclick="savePortfolio()" aria-label="Save portfolio">Save Portfolio</button>
+            <button id="clear-portfolio-btn" onclick="clearPortfolio()" style="background-color: #e74c3c;" aria-label="Clear portfolio">Clear Portfolio</button>
+        </div>
+        <div class="query-section">
+            <h2>Enter Your Query</h2>
+            <input type="text" id="query-input-text" placeholder="What's our risk exposure in global technology stocks?" aria-label="Enter your query">
+            <button id="submit-btn" onclick="submitQuery()" aria-label="Submit query">Submit Query</button>
+            <button id="record-btn" onclick="startRecording()" aria-label="Start recording voice query"><i class="fas fa-microphone"></i></button>
+            <button id="stop-btn" onclick="stopRecording()" disabled aria-label="Stop recording voice query">Stop</button>
+            <p id="record-status">Ready</p>
+        </div>
+        <div class="live-section">
+            <h3>Live Stock Tracking</h3>
+            <table id="live-tracking" aria-describedby="live-tracking-description">
+                <caption id="live-tracking-description" class="sr-only">Live tracking of stock prices and volumes for your portfolio</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Stock</th>
+                        <th scope="col">Shares</th>
+                        <th scope="col">Price ($)</th>
+                        <th scope="col">Volume</th>
+                        <th scope="col">Last Updated</th>
+                    </tr>
+                </thead>
+                <tbody id="live-tracking-body">
+                    <tr><td colspan="5">No portfolio data available.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="response-section">
+            <h2>Response</h2>
+            <div class="output-container">
+                <div class="audio-output">
+                    <h3>Audio Response</h3>
+                    <audio id="audio-output" controls aria-label="Audio response"></audio>
+                    <span class="audio-animation hidden"></span>
+                    <div class="voice-history">
+                        <h3>Voice Input History</h3>
+                        <ul id="voice-history-list" aria-label="List of previous voice queries"></ul>
+                    </div>
+                </div>
+                <div class="tone-analysis">
+                    <h3>Tone Analysis</h3>
+                    <p id="tone-analysis-text">No tone analysis available.</p>
+                </div>
+            </div>
+            <div class="charts-container" id="charts-container" aria-label="Charts visualizing portfolio data">
+                <!-- Charts will be dynamically added here -->
+            </div>
+        </div>
+
+        <!-- News Section -->
+        <div class="container mt-4">
+            <h3 class="mb-3">Latest News</h3>
+            <div id="news-container" class="row">
+                <!-- News articles will be dynamically inserted here -->
+            </div>
+        </div>
+
+        <!-- Narrative Section -->
+        <div class="container mt-4">
+            <h3 class="mb-3">Portfolio Analysis</h3>
+            <div id="narrative-container" class="card">
+                <div class="card-body">
+                    <div id="narrative-text" class="card-text">Submit a query to see the analysis.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Audio Narration Section -->
+        <div class="container mt-4">
+            <h3 class="mb-3">Audio Narration</h3>
+            <div id="audio-container" class="card">
+                <div class="card-body">
+                    <audio id="audio-player" controls class="w-100 mb-3" style="display: none;"></audio>
+                    <span class="audio-animation hidden"></span>
+                    <h5>Transcript</h5>
+                    <p id="audio-transcript" class="card-text">No audio narration available.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let recordingStartTime;
+        let isProcessing = false; // To prevent multiple submissions
+        const MIN_RECORDING_DURATION = 1000; // 1 second in milliseconds
+        let portfolioData = null;
+        const backendUrl = "http://localhost:8003/run";
+        const apiUrl = "http://localhost:8003/api/run";
+
+        // Check if browser supports audio recording
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert("Your browser does not support audio recording. Please use a modern browser.");
+            document.getElementById("record-btn").disabled = true;
+            document.getElementById("stop-btn").disabled = true;
+        }
+
+        // Load portfolio from localStorage on page load
+        window.onload = function() {
+            const savedPortfolio = localStorage.getItem("portfolio");
+            if (savedPortfolio) {
+                document.getElementById("portfolio-input").value = savedPortfolio;
+                portfolioData = savedPortfolio;
+                updateLiveTracking();
+            }
+        };
+
+        // Save portfolio
+        function savePortfolio() {
+            const portfolioInput = document.getElementById("portfolio-input").value.trim();
+            if (!portfolioInput) {
+                alert("Please enter a portfolio (e.g., AAPL:100, MSFT:50)");
+                return;
+            }
+
+            // Validate portfolio format
+            const entries = portfolioInput.split(",");
+            for (let entry of entries) {
+                entry = entry.trim();
+                if (!entry.includes(":")) {
+                    alert(`Invalid portfolio format in entry: ${entry}. Use SYMBOL:QUANTITY (e.g., AAPL:100)`);
+                    return;
+                }
+                const [symbol, quantity] = entry.split(":");
+                if (!symbol || !quantity || isNaN(quantity) || Number(quantity) <= 0) {
+                    alert(`Invalid entry: ${entry}. Ensure symbol and quantity are valid.`);
+                    return;
+                }
+            }
+
+            portfolioData = portfolioInput;
+            localStorage.setItem("portfolio", portfolioData);
+            updateLiveTracking();
+            alert("Portfolio saved!");
+        }
+
+        // Clear portfolio
+        function clearPortfolio() {
+            portfolioData = null;
+            localStorage.removeItem("portfolio");
+            document.getElementById("portfolio-input").value = "";
+            const tbody = document.getElementById("live-tracking-body");
+            tbody.innerHTML = "<tr><td colspan='5'>No portfolio data available.</td></tr>";
+            clearCharts();
+            const audio = document.getElementById("audio-output");
+            audio.src = "";
+            document.getElementById("tone-analysis-text").innerText = "No tone analysis available.";
+            document.getElementById("narrative-text").innerHTML = "Submit a query to see the analysis.";
+            document.getElementById("audio-player").src = "";
+            document.getElementById("audio-player").style.display = "none";
+            document.getElementById("audio-transcript").innerText = "No audio narration available.";
+            document.getElementById("news-container").innerHTML = "<p>No recent news available.</p>";
+            alert("Portfolio cleared!");
+        }
+
+        // Start recording voice query
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                    console.log(`Audio chunk recorded, size: ${event.data.size} bytes`);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const duration = Date.now() - recordingStartTime;
+                    console.log(`Recording duration: ${duration}ms`);
+
+                    if (duration < MIN_RECORDING_DURATION) {
+                        alert("Recording is too short. Please record for at least 1 second.");
+                        resetRecordingState();
+                        return;
+                    }
+
+                    const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+                    console.log(`Audio blob created, size: ${audioBlob.size} bytes`);
+                    await submitQuery(null, audioBlob);
+                };
+
+                recordingStartTime = Date.now();
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById("record-btn").disabled = true;
+                document.getElementById("stop-btn").disabled = false;
+                document.getElementById("submit-btn").disabled = true; // Disable submit during recording
+                document.getElementById("record-status").innerText = "Recording...";
+            } catch (error) {
+                console.error("Error starting recording:", error);
+                alert("Failed to start recording. Please check microphone permissions.");
+                resetRecordingState();
+            }
+        }
+
+        // Stop recording
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                document.getElementById("record-status").innerText = "Processing...";
+                // Note: We don't re-enable buttons here; submitQuery will handle it
+            }
+        }
+
+        // Reset recording state
+        function resetRecordingState() {
+            isRecording = false;
+            isProcessing = false;
+            document.getElementById("record-btn").disabled = false;
+            document.getElementById("stop-btn").disabled = true;
+            document.getElementById("submit-btn").disabled = false;
+            document.getElementById("record-status").innerText = "Ready";
+        }
+
+        // Function to update the news section
+        function updateNewsSection(news) {
+            const newsContainer = document.getElementById('news-container');
+            newsContainer.innerHTML = ''; // Clear existing content
+
+            if (!news || news.length === 0) {
+                newsContainer.innerHTML = '<p>No recent news available.</p>';
+                return;
+            }
+
+            news.forEach(item => {
+                const newsCard = document.createElement('div');
+                newsCard.className = 'col-md-6 news-card';
+
+                const sentimentClass = `news-sentiment sentiment-${item.sentiment}`;
+                newsCard.innerHTML = `
+                    <div>
+                        <span class="${sentimentClass}">${item.sentiment.charAt(0).toUpperCase() + item.sentiment.slice(1)}</span>
+                        <p class="mt-2">${item.article}</p>
+                        <p class="news-timestamp">Published: ${new Date(item.timestamp).toLocaleString()}</p>
+                    </div>
+                `;
+                newsContainer.appendChild(newsCard);
+            });
+        }
+
+        // Function to update the narrative section
+        function updateNarrativeSection(narrative, query) {
+            const narrativeText = document.getElementById('narrative-text');
+            let htmlContent = '';
+
+            // Add the query if available
+            if (query) {
+                htmlContent += `<div class="query">Query: ${query}</div>`;
+            }
+
+            if (narrative && narrative !== 'No analysis available.') {
+                // Split the narrative into sections (assuming sentences or paragraphs)
+                const sections = narrative.split('. ').map(s => s.trim()).filter(s => s.length > 0);
+
+                sections.forEach((section, index) => {
+                    // Highlight key metrics or numbers
+                    const formattedSection = section.replace(/(\d+\.?\d*)/g, '<span class="metric">$1</span>');
+                    // Add section title for every other section for structure
+                    const sectionTitle = index % 2 === 0 ? 'Market Overview' : 'Risk Assessment';
+                    htmlContent += `
+                        <div class="section">
+                            <div class="section-title">${sectionTitle}:</div>
+                            <p>${formattedSection}${section.endsWith('.') ? '.' : ''}</p>
+                        </div>
+                    `;
+                });
+            } else {
+                htmlContent += '<p>No analysis available.</p>';
+            }
+
+            narrativeText.innerHTML = htmlContent;
+        }
+
+        // Function to update the audio section
+        function updateAudioSection(audioFile, transcript) {
+            const audioPlayer = document.getElementById('audio-player');
+            const audioTranscript = document.getElementById('audio-transcript');
+            const animationElement = audioPlayer.parentElement.querySelector('.audio-animation');
+
+            if (audioFile) {
+                audioPlayer.src = audioFile;
+                audioPlayer.style.display = 'block';
+                audioTranscript.textContent = transcript || 'No transcript available.';
+
+                audioPlayer.addEventListener('play', () => {
+                    animationElement.classList.remove('hidden');
+                    document.getElementById("record-btn").classList.add('speaking');
+                });
+
+                audioPlayer.addEventListener('pause', () => {
+                    animationElement.classList.add('hidden');
+                    document.getElementById("record-btn").classList.remove('speaking');
+                });
+
+                audioPlayer.addEventListener('ended', () => {
+                    animationElement.classList.add('hidden');
+                    document.getElementById("record-btn").classList.remove('speaking');
+                });
+            } else {
+                audioPlayer.style.display = 'none';
+                audioTranscript.textContent = 'No audio narration available.';
+            }
+        }
+
+        // Function to update the tone analysis section
+        function updateToneAnalysis(tone) {
+            const toneText = document.getElementById('tone-analysis-text');
+            if (tone && tone.pitch && tone.energy && tone.tempo) {
+                toneText.textContent = `Pitch: ${tone.pitch}, Energy: ${tone.energy}, Tempo: ${tone.tempo}`;
+            } else {
+                toneText.textContent = 'Tone analysis not available.';
+            }
+        }
+
+        // Retry function for fetch requests
+        async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return await response.json();
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    console.warn(`Fetch attempt ${i + 1} failed. Retrying in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2; // Exponential backoff
+                }
+            }
+        }
+
+        // Submit query (text or audio)
+        async function submitQuery(queryText = null, audioBlob = null) {
+            if (isProcessing) {
+                console.log("Processing already in progress. Please wait.");
+                return;
+            }
+
+            if (!portfolioData) {
+                alert("Please save a portfolio before submitting a query.");
+                resetRecordingState();
+                return;
+            }
+
+            isProcessing = true;
+            document.getElementById("submit-btn").disabled = true;
+            document.getElementById("record-btn").disabled = true;
+            document.getElementById("stop-btn").disabled = true;
+
+            const formData = new FormData();
+            formData.append("portfolio", portfolioData);
+            formData.append("user_id", "default");
+
+            if (audioBlob) {
+                formData.append("audio", audioBlob, "recording.wav");
+            } else {
+                queryText = document.getElementById("query-input-text").value.trim();
+                if (!queryText) {
+                    alert("Please enter a query or record a voice query.");
+                    resetRecordingState();
+                    isProcessing = false;
+                    return;
+                }
+                formData.append("query", queryText);
+            }
+
+            try {
+                const result = await fetchWithRetry(backendUrl, {
+                    method: "POST",
+                    body: formData
+                }, 3, 1000);
+
+                console.log("Backend response:", result);
+
+                // Update narrative section with the transcribed query
+                updateNarrativeSection(result.narrative || result.error, result.query);
+
+                // Update news section
+                updateNewsSection(result.news);
+
+                // Update audio section
+                updateAudioSection(result.audio_file, result.audio_transcript);
+
+                // Update tone analysis
+                updateToneAnalysis(result.tone_analysis);
+
+                // Play audio response (legacy audio output)
+                const audioOutput = document.getElementById("audio-output");
+                const animationElement = audioOutput.parentElement.querySelector('.audio-animation');
+                if (result.audio_file) {
+                    audioOutput.src = result.audio_file;
+                    audioOutput.play().catch(error => {
+                        console.error("Error playing audio:", error);
+                    });
+
+                    audioOutput.addEventListener('play', () => {
+                        animationElement.classList.remove('hidden');
+                        document.getElementById("record-btn").classList.add('speaking');
+                    });
+
+                    audioOutput.addEventListener('pause', () => {
+                        animationElement.classList.add('hidden');
+                        document.getElementById("record-btn").classList.remove('speaking');
+                    });
+
+                    audioOutput.addEventListener('ended', () => {
+                        animationElement.classList.add('hidden');
+                        document.getElementById("record-btn").classList.remove('speaking');
+                    });
+                } else {
+                    audioOutput.src = "";
+                }
+
+                // Update voice history if voice input was used
+                if (audioBlob && result.query) {
+                    const voiceHistoryList = document.getElementById("voice-history-list");
+                    const li = document.createElement("li");
+                    li.innerText = `${new Date().toLocaleString()}: ${result.query}`;
+                    voiceHistoryList.prepend(li);
+                    // Limit history to 5 entries
+                    while (voiceHistoryList.children.length > 5) {
+                        voiceHistoryList.removeChild(voiceHistoryList.lastChild);
+                    }
+                }
+
+                // Clear text input
+                if (!audioBlob) {
+                    document.getElementById("query-input-text").value = "";
+                }
+
+                // Update charts with analysis data
+                updateCharts(result.analysis);
+
+            } catch (error) {
+                console.error("Error submitting query:", error);
+                const errorMessage = "Failed to fetch response from server. Please check if the backend server is running and try again.";
+                updateNarrativeSection(errorMessage);
+                updateNewsSection([]);
+                updateAudioSection("", "");
+                updateToneAnalysis({});
+                const audioOutput = document.getElementById("audio-output");
+                audioOutput.src = "";
+            } finally {
+                isProcessing = false;
+                resetRecordingState();
+            }
+        }
+
+        // Update live stock tracking
+        async function updateLiveTracking() {
+            if (!portfolioData) {
+                return;
+            }
+
+            const symbolsWithQuantities = portfolioData.split(",").map(s => s.trim());
+            const payload = { ticker: portfolioData };
+
+            try {
+                const data = await fetchWithRetry(apiUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(payload)
+                }, 3, 1000);
+
+                console.log("Live tracking data:", data);
+
+                const tbody = document.getElementById("live-tracking-body");
+                tbody.innerHTML = "";
+
+                const symbols = symbolsWithQuantities.map(s => s.split(":")[0]);
+                symbols.forEach((symbol, index) => {
+                    const stockData = data.stocks[symbol] || { price: "N/A", volume: "N/A" };
+                    const quantity = symbolsWithQuantities[index].split(":")[1];
+                    const row = document.createElement("tr");
+                    row.innerHTML = `
+                        <td>${symbol}</td>
+                        <td>${quantity}</td>
+                        <td>${typeof stockData.price === "number" ? stockData.price.toFixed(2) : stockData.price}</td>
+                        <td>${stockData.volume}</td>
+                        <td>${new Date().toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error("Error updating live tracking:", error);
+                const tbody = document.getElementById("live-tracking-body");
+                tbody.innerHTML = "<tr><td colspan='5'>Failed to fetch live data.</td></tr>";
+            }
+        }
+
+        // Update charts with analysis data
+        function updateCharts(analysis) {
+            clearCharts();
+            if (!analysis || !analysis.exposure) {
+                return;
+            }
+
+            const chartsContainer = document.getElementById("charts-container");
+
+            // Exposure Pie Chart
+            const exposureCanvas = document.createElement("canvas");
+            exposureCanvas.id = "exposure-chart";
+            chartsContainer.appendChild(exposureCanvas);
+
+            const exposureData = {
+                labels: Object.keys(analysis.exposure),
+                datasets: [{
+                    label: "Portfolio Exposure (%)",
+                    data: Object.values(analysis.exposure),
+                    backgroundColor: [
+                        "#3498db",
+                        "#e74c3c",
+                        "#2ecc71",
+                        "#f1c40f",
+                        "#9b59b6",
+                        "#1abc9c"
+                    ]
+                }]
+            };
+
+            new Chart(exposureCanvas, {
+                type: "pie",
+                data: exposureData,
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: "top"
+                        },
+                        title: {
+                            display: true,
+                            text: "Portfolio Exposure by Asset Class"
+                        }
+                    }
+                }
+            });
+        }
+
+        // Clear existing charts
+        function clearCharts() {
+            const chartsContainer = document.getElementById("charts-container");
+            chartsContainer.innerHTML = "";
+        }
+
+        // Periodically update live tracking
+        setInterval(updateLiveTracking, 60000); // Update every 60 seconds
+    </script>
+</body>
+</html>
