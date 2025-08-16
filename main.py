@@ -30,10 +30,9 @@ import soundfile as sf
 from pydub import AudioSegment
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import os
 import requests
 import zipfile
-import os
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -72,9 +71,6 @@ def download_glove_embeddings():
 
 # Call the download function before loading embeddings
 download_glove_embeddings()
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -99,7 +95,7 @@ app = FastAPI(title="Finance Assistant")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:5500", "http://localhost:5500", "*"],
+    allow_origins=["*"], # Allowing all origins for local development simplicity
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -111,9 +107,9 @@ deepgram = DeepgramClient(DEEPGRAM_API_KEY)
 # Ensure NLTK data for TextBlob is available
 try:
     import nltk
-    nltk.download('punkt_tab', quiet=True)
+    nltk.download('punkt', quiet=True)
 except Exception as e:
-    logger.warning(f"Failed to download NLTK punkt_tab: {e}. Using fallback sentiment analysis.")
+    logger.warning(f"Failed to download NLTK punkt: {e}. Using fallback sentiment analysis.")
 
 # Load GloVe embeddings
 GLOVE_PATH = "glove.6B.300d.txt"
@@ -427,7 +423,7 @@ def save_news(company: str, articles_with_sentiment: list):
             text = article["article"]
             sentiment = article["sentiment"]
             c.execute("INSERT INTO news (company, article, sentiment) VALUES (?, ?, ?)",
-                     (company, text, sentiment))
+                      (company, text, sentiment))
         
         conn.commit()
         conn.close()
@@ -711,7 +707,7 @@ Include:
 - Recommendations or outlook
 """
         model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(prompt)
+        response = await model.generate_content_async(prompt)
         return response.text.strip()
     except Exception as e:
         logger.error(f"Gemini narrative fallback failed: {str(e)}")
@@ -729,7 +725,7 @@ def summarize_news_sentiment(news: List[Dict]) -> str:
 # Helper to determine query focus
 def determine_query_focus(query: str) -> str:
     query_lower = query.lower()
-    if "visualize" in query_lower:
+    if "visualize" in query_lower or "chart" in query_lower or "breakdown" in query_lower:
         return "visualization"
     elif "investment opportunit" in query_lower:
         return "investment_opportunities"
@@ -748,7 +744,7 @@ def add_audio_section_markers(narrative: str) -> str:
     for line in lines:
         if re.match(section_pattern, line.strip()):
             section_name = line.strip().rstrip(":")
-            modified_line = f"* * {section_name} * *:"
+            modified_line = f"{section_name}:"
             modified_lines.append(modified_line)
         else:
             modified_lines.append(line)
@@ -789,48 +785,57 @@ async def language_node(state: State) -> State:
 
     # Generate a chart if the query focus is visualization
     if query_focus == "visualization":
-        sector_breakdown_dict = state.analysis_result.get("exposure", {})
-        if sector_breakdown_dict:
-            labels = list(sector_breakdown_dict.keys())
-            data = list(sector_breakdown_dict.values())
-            chart_config = {
+        exposure_data = state.analysis_result.get("exposure", {})
+        regional_data = state.analysis_result.get("regional_sector_exposure", {})
+        
+        if exposure_data:
+            state.charts.append({
                 "type": "pie",
                 "data": {
-                    "labels": labels,
+                    "labels": list(exposure_data.keys()),
                     "datasets": [{
-                        "label": "Sector Exposure",
-                        "data": data,
-                        "backgroundColor": [
-                            "#FF6F61",  # Coral
-                            "#6B5B95",  # Purple
-                            "#88B04B",  # Green
-                            "#F7CAC9",  # Light Pink
-                            "#92A8D1",  # Light Blue
-                            "#955251",  # Dark Coral
-                            "#B565A7"   # Magenta
-                        ],
-                        "borderColor": "#FFFFFF",
-                        "borderWidth": 1
+                        "label": "Asset Class Exposure",
+                        "data": list(exposure_data.values()),
+                        "backgroundColor": ["#FF6F61", "#6B5B95", "#88B04B", "#F7CAC9", "#92A8D1"],
+                        "borderColor": "#FFFFFF", "borderWidth": 2
                     }]
                 },
                 "options": {
                     "responsive": True,
                     "plugins": {
-                        "legend": {
-                            "position": "top",
-                            "labels": {
-                                "color": "#333333"
-                            }
-                        },
-                        "title": {
-                            "display": True,
-                            "text": "Sector Exposure Breakdown",
-                            "color": "#333333"
+                        "legend": {"position": "top"},
+                        "title": {"display": True, "text": "Asset Class Exposure Breakdown"},
+                        "datalabels": {
+                            "formatter": "(value, ctx) => `${ctx.chart.data.labels[ctx.dataIndex]}\\n${value.toFixed(1)}%`",
+                            "color": "#fff", "backgroundColor": "rgba(0, 0, 0, 0.6)", "borderRadius": 4
                         }
                     }
                 }
-            }
-            state.charts.append(chart_config)
+            })
+
+        if regional_data:
+            state.charts.append({
+                "type": 'doughnut',
+                "data": {
+                    "labels": list(regional_data.keys()),
+                    "datasets": [{
+                        "label": 'Regional & Sector Exposure', "data": list(regional_data.values()),
+                        "backgroundColor": ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c"],
+                        "borderColor": "#FFFFFF", "borderWidth": 2
+                    }]
+                },
+                "options": {
+                    "responsive": True,
+                    "plugins": {
+                        "legend": {"position": 'bottom'},
+                        "title": {"display": True, "text": 'Regional & Sector Exposure'},
+                        "datalabels": {
+                             "formatter": "(value, ctx) => `${ctx.chart.data.labels[ctx.dataIndex].split('_').join(' ')}\\n${value.toFixed(1)}%`",
+                            "color": "#fff", "backgroundColor": "rgba(0, 0, 0, 0.6)", "borderRadius": 4
+                        }
+                    }
+                }
+            })
 
     tone_summary = f"User's voice tone: Pitch is {state.tone_analysis.get('pitch', 'unknown')}, energy is {state.tone_analysis.get('energy', 'unknown')}, tempo is {state.tone_analysis.get('tempo', 'unknown')}."
     tone_intro = get_tone_introduction(state.tone_analysis)
@@ -865,7 +870,7 @@ Portfolio Snapshot for Visualization:
 - Total Value: ${total_value:,.2f}, with {key_holdings} as your main holdings.
 - Sector Breakdown: {sector_breakdown}.
 - Regional Exposure: {regional_breakdown}.
-- Key Insight: Your portfolio is {risk_level} risk, primarily in {focus_sector}. A chart of sector allocations has been generated for you to visualize concentration risks.
+- Key Insight: Your portfolio is {risk_level} risk, primarily in {focus_sector}. Charts of your asset and regional allocations have been generated for you to visualize concentration risks.
 """
         if query_focus == "visualization" else
         # Risk Assessment
@@ -909,6 +914,7 @@ GUIDELINES:
 - Use plain section headers (e.g., "Portfolio Overview:") for written output.
 - Avoid using special characters like $ or % in the narrative text for clean audio output.
 - If market data is unavailable, use general sector trends or historical insights as a fallback.
+-Avoid Astreisks in the narrative text for clean audio output.
 
 SESSION CONTEXT:
 - Date: {current_date}
@@ -1012,7 +1018,7 @@ SESSION CONTEXT:
         )
 
         model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(formatted_prompt)
+        response = await model.generate_content_async(formatted_prompt)
         state.narrative = response.text.strip()
         state.narrative_for_audio = add_audio_section_markers(state.narrative)
 
@@ -1074,7 +1080,7 @@ async def process_audio_input(state: State) -> State:
                 utterances=True
             )
 
-            response = deepgram.listen.prerecorded.v("1").transcribe_file(
+            response = await deepgram.listen.prerecorded.v("1").transcribe_file(
                 buffer_data,
                 options
             )
@@ -1113,6 +1119,8 @@ async def generate_audio(state: State) -> State:
             encoding="mp3",
         )
 
+        # *** CHANGE: Removed 'await' from this synchronous function call ***
+        # The Deepgram SDK's speak.rest.stream is a blocking, synchronous method.
         response = deepgram.speak.rest.v("1").stream(
             {"text": narrative},
             options
@@ -1128,6 +1136,7 @@ async def generate_audio(state: State) -> State:
         logger.error(f"Voice generation error: {str(e)}")
         state.audio_output = ""
     return state
+
 
 # Main pipeline
 async def run_pipeline(query: Optional[str], portfolio: str, user_id: str, audio: Optional[bytes], background_tasks: BackgroundTasks):
@@ -1232,11 +1241,11 @@ async def get_news_history(request: NewsHistoryRequest):
         c = conn.cursor()
         
         c.execute("""SELECT article, sentiment, timestamp 
-                    FROM news 
-                    WHERE company = ? 
-                    AND timestamp >= datetime('now', ?) 
-                    ORDER BY timestamp DESC""",
-                 (request.company, f'-{request.days} days'))
+                     FROM news 
+                     WHERE company = ? 
+                     AND timestamp >= datetime('now', ?) 
+                     ORDER BY timestamp DESC""",
+                  (request.company, f'-{request.days} days'))
         
         results = c.fetchall()
         conn.close()
@@ -1277,15 +1286,7 @@ async def run(
                 raise HTTPException(status_code=400, detail="Empty audio file provided")
 
         result = await run_pipeline(query, portfolio, user_id, audio_bytes, background_tasks)
-        return JSONResponse(
-            content=result,
-            headers={
-                "Access-Control-Allow-Origin": "http://127.0.0.1:5500",
-                "Access-Control-Allow-Credentials": "true",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                "Access-Control-Allow-Headers": "*"
-            }
-        )
+        return JSONResponse(content=result)
     except Exception as e:
         logger.error(f"Pipeline error: {str(e)}")
         return JSONResponse(
@@ -1300,17 +1301,9 @@ async def run(
                 "query": query or "",
                 "news": [],
                 "charts": []
-            },
-            headers={
-                "Access-Control-Allow-Origin": "http://127.0.0.1:5500",
-                "Access-Control-Allow-Credentials": "true",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                "Access-Control-Allow-Headers": "*"
             }
         )
-app.mount("/static", StaticFiles(directory="."), name="static")
-
 # Serve index.html at the root URL
 @app.get("/")
 async def serve_index():
-    return FileResponse("index.html")
+    return FileResponse("m.html")
