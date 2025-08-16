@@ -70,7 +70,7 @@ def download_glove_embeddings():
         raise ValueError("Could not download GloVe embeddings. Please ensure internet access and try again.")
 
 # Call the download function before loading embeddings
-download_glove_embeddings()
+#download_glove_embeddings()
 
 # Load environment variables
 load_dotenv()
