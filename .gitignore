@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 __pycache__/
 *.pyc
 *.pyo
@@ -13,10 +12,8 @@ logs/
 *.log
 test_results/
 .DS_Store
-=======
-.env
-data/
-__pycache__/
+terminals/
+financial_data.db
 glove.6B.300d.txt
+glove.6B.zip
 glove/
->>>>>>> 142a10823b74f1ebb8ea17e0b1af7b3dad96b318

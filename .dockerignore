@@ -9,4 +9,8 @@ venv/
 .gitignore
 .env
 *.md
+logs/
+tests/
+pytest.ini
+financial_data.db
 glove.6B.300d.txt
