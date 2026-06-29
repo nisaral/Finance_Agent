@@ -1,4 +1,5 @@
 fastapi
+<<<<<<< HEAD
 uvicorn[standard]
 pydantic
 yfinance
@@ -28,3 +29,22 @@ opentelemetry-exporter-otlp-proto-grpc
 pytest
 pytest-asyncio
 httpx
+=======
+uvicorn
+python-dotenv
+requests
+numpy
+textblob
+aiohttp
+deepgram-sdk==3.*
+google-generativeai
+langchain-core
+tenacity
+scikit-learn
+cachetools
+yfinance
+librosa
+soundfile
+pydub
+gunicorn
+>>>>>>> 142a10823b74f1ebb8ea17e0b1af7b3dad96b318
