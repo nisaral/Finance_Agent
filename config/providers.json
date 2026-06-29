@@ -1,0 +1,21 @@
+{
+  "stt": {
+    "primary": { "provider": "cartesia", "model": "ink-whisper", "mode": "batch" },
+    "fallback": []
+  },
+  "tts": {
+    "primary": {
+      "provider": "cartesia",
+      "model": "sonic-3",
+      "voice_id": "a0e99841-438c-4a64-b679-ae501e7d6091",
+      "encoding": "pcm_s16le"
+    },
+    "fallback": [
+      { "provider": "cartesia", "model": "sonic-latest", "voice_id": "a0e99841-438c-4a64-b679-ae501e7d6091" }
+    ]
+  },
+  "llm": {
+    "primary": { "provider": "gemini", "model": "gemini-2.0-flash" },
+    "fallback": [{ "provider": "gemini", "model": "gemini-2.0-flash" }]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "agent": {
+    "name": "Global Market Assistant",
+    "tone": {
+      "style": "professional",
+      "empathy_multiplier": 1.2,
+      "max_words_per_response": 200,
+      "avoid_symbols_in_speech": true
+    },
+    "compliance_mode": true,
+    "rules": {
+      "disclaimer_required": true,
+      "disclaimer_text": "This is informational analysis, not financial advice.",
+      "prohibited_topics": ["insider_trading", "guaranteed_returns"],
+      "require_portfolio_verification": true
+    },
+    "safe_mode": {
+      "enabled": true,
+      "news_fallback_message": "I'm having trouble fetching live news, but I can still analyze the current price of your holdings.",
+      "market_data_stale_threshold_seconds": 300
+    },
+    "latency": {
+      "stt_endpointing_ms": 300,
+      "tts_sentence_min_words": 8,
+      "max_tts_chunk_chars": 200,
+      "jitter_buffer_ms": 75
+    }
+  }
+}
